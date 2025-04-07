@@ -1,0 +1,106 @@
+c = [-4; -3; -2; -1];
+A = [10,7,-1,1; 0,3,8,-6; 15,-20,-40,-50];
+b = [18;16;27];
+[x, z, status] = simplex_method(c, A, b);
+function [x, z, status] = simplex_method(c, A, b)
+    [m, n] = size(A);
+    A = [A, eye(m)];       % 添加松弛变量
+    c = [c; zeros(m, 1)];  % 扩展目标函数系数
+    total_vars = n + m;    % 总变量数
+    
+    % 初始基变量（松弛变量）
+    basis = (n+1):(n+m);
+    non_basis = 1:n;
+
+    max_iter = 100;
+   tol = max(1e-10, 1e-6 * norm(b));  % 动态容差
+
+    % 打印初始单纯形表
+    fprintf('Initial Tableau:\n');
+    print_tableau(A, b, c, basis, non_basis);
+
+    for iter = 1:max_iter
+       [L, U, P] = lu(A(:, basis));
+       B_inv = U \ (L \ P);  % 更稳定的求解方式;
+        x_basis = B_inv * b;
+        x = zeros(total_vars, 1);
+        x(basis) = x_basis;
+
+        % 计算检验数（仅非基变量）
+        reduced_cost = c(non_basis)' - c(basis)' * (B_inv * A(:, non_basis));
+
+        % 检查最优性
+        if all(reduced_cost >= -tol)
+            status = 'optimal';
+            break;
+        end
+
+        % 选择进基变量（最负检验数）
+        [~, entering_idx] = min(reduced_cost);
+        entering = non_basis(entering_idx);
+
+        % 计算方向向量
+        d = B_inv * A(:, entering);
+
+        % 检查无界性
+        if all(d <= tol)
+            status = 'unbounded';
+            break;
+        end
+
+        % 选择离基变量
+        ratios = x_basis(d > 0) ./ d(d > 0);
+        [~, leaving_pos] = min(ratios);
+        leaving = basis(d > 0);
+        leaving = leaving(leaving_pos);
+
+        % 更新基
+        basis(basis == leaving) = entering;
+        non_basis(non_basis == entering) = leaving;
+
+        % 打印当前迭代表
+        fprintf('\nIteration %d:\n', iter);
+        print_tableau(A, b, c, basis, non_basis);
+    end
+
+    % 提取原始变量的解
+    x = x(1:n);
+    z = c(1:n)' * x;
+
+    if iter == max_iter
+        status = 'max_iter_reached';
+    end
+
+    fprintf('\nFinal Status: %s\n', status);
+    fprintf('Optimal Solution: %s\n', mat2str(x));
+    fprintf('Optimal Objective Value: %.4f\n', z);
+end
+function print_tableau(A, b, c, basis, non_basis)
+    m = size(A, 1);
+    n_total = size(A, 2);  % 总变量数 = n + m
+    [L, U, P] = lu(A(:, basis));
+    B_inv = U \ (L \ P);  % 更稳定的求解方式
+    x_basis = B_inv * b;
+    
+    % 计算检验数（所有变量）
+    reduced_cost_all = zeros(1, n_total);
+    reduced_cost_all(non_basis) = c(non_basis)' - c(basis)' * (B_inv * A(:, non_basis));
+    
+    % 构造单纯形表
+    tableau_top = [B_inv * A, x_basis];
+tableau_bottom = [reduced_cost_all, -c(basis)' * x_basis];
+tableau = [tableau_top; tableau_bottom];
+    
+    % 打印表头
+    var_names = arrayfun(@(i) sprintf('x%d', i), 1:(n_total - m), 'UniformOutput', false);
+    slack_names = arrayfun(@(i) sprintf('s%d', i), 1:m, 'UniformOutput', false);
+    headers = [var_names, slack_names, {'RHS'}];
+    
+    % 打印矩阵
+    fprintf('%8s', headers{:});
+    fprintf('\n');
+    for i = 1:size(tableau, 1)
+        fprintf('%12.6f', tableau(i, :));
+        fprintf('\n');
+    end
+end
